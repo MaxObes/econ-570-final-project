@@ -1,3 +1,5 @@
 # .gitignore
 .* # ignore all hidden files and folders
 !/.gitignore # explicitly do not ignore .gitignore
+.DS_Store
+.ipynb_checkpoints/econ570-checkpoint.ipynb
