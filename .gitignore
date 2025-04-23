@@ -3,3 +3,5 @@
 !/.gitignore # explicitly do not ignore .gitignore
 .DS_Store
 .ipynb_checkpoints/econ570-checkpoint.ipynb
+zip_shapefile_data/tl_2020_us_zcta520.shp
+county_shapefile_data/tl_2020_us_county.shp
