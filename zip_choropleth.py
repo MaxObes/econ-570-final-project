@@ -1,12 +1,14 @@
 # run using streamlit run zip_choropleth.py
 
 import streamlit as st
-st.set_page_config(layout="wide", menu_items={"Report a bug" : "https://github.com/MaxObes/econ-570-final-project", "About" : "Andrew VanDerKolk and Max Oberbrunner's Econ 570 Final Project."})
+st.set_page_config(page_title="Group 25 Econ 570",
+                   layout="wide", 
+                   menu_items={"Report a bug" : "https://github.com/MaxObes/econ-570-final-project", "About" : "Andrew VanDerKolk and Max Oberbrunner's Econ 570 Final Project."})
 
 import pandas as pd
+import geopandas as gpd
 import zipfile
 import pyarrow as pa
-import pyarrow.csv
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.ticker as ticker
@@ -44,14 +46,14 @@ with st.spinner("Processing data..."):
 st.title("Campaign Finance Trends (2024 Presidential Election)")
 
 # --- Tabs ---
-tab1, tab2 = st.tabs(["Campaign Donations By State", "Campaign Donations Over Time"])
+tab1, tab2, tab3 = st.tabs(["Campaign Donations by State", "Campaign Donations Over Time", "Campaign Donations by Zip Code"])
 
 with tab1:
     col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=False)
     with col2:
         with st.container(border=True, ):
             st.subheader("Campaign Contributions by Candidate and State")
-            sort_by = st.radio("Sort bars by:", ["Total Contributions", "State (Alphabetical)"], horizontal=True)
+            sort_by = st.radio("Sort bars by:", ["Total Contributions", "State"], horizontal=True)
 
             grouped = cf_df.groupby(["contbr_st", "contbr_zip", "cand_nm"])["contb_receipt_amt"].sum().reset_index()
             state_cand_sums = grouped.groupby(["contbr_st", "cand_nm"])["contb_receipt_amt"].sum().reset_index()
@@ -135,3 +137,49 @@ with tab1:
             st.pyplot(fig)
         
         col3.border = False
+
+with tab3:
+    col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=False)
+    with col2:
+        st.subheader("ZIP-Level Donation Choropleth")
+
+        # Load shapefile and donations by ZIP
+        @st.cache_data(show_spinner=False)
+        def load_zcta():
+            zcta_gdf = gpd.read_file("tl_2020_us_zcta520.shp")
+            zcta_gdf = zcta_gdf[["ZCTA5CE20", "geometry"]].rename(columns={"ZCTA5CE20": "zip"})
+            return zcta_gdf
+
+        @st.cache_data(show_spinner=False)
+        def get_donations_by_zip(df):
+            don_by_zip = df.groupby("contbr_zip")["contb_receipt_amt"].sum().reset_index()
+            don_by_zip = don_by_zip.rename(columns={"contbr_zip": "zip"})
+            return don_by_zip
+
+        with st.spinner("Loading ZIP-level geometry and donations..."):
+            zcta_gdf = load_zcta()
+            don_by_zip = get_donations_by_zip(cf_df)
+
+        choropleth_df = zcta_gdf.merge(don_by_zip, on="zip", how="left").fillna(0)
+        choropleth_df["zip"] = choropleth_df["zip"].astype(str)
+
+        choropleth_df["id"] = choropleth_df.index.astype(str)
+import json
+geojson_data = json.loads(choropleth_df.to_json())
+
+fig = px.choropleth_mapbox(
+    choropleth_df,
+    geojson=geojson_data,
+    locations="id",
+            color="contb_receipt_amt",
+            hover_name="zip",
+            mapbox_style="carto-positron",
+            color_continuous_scale="Viridis",
+            zoom=3,
+            center={"lat": 37.8, "lon": -96},
+            opacity=0.6,
+            height=600
+        )
+
+fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+st.plotly_chart(fig, use_container_width=True)
