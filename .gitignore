@@ -5,3 +5,4 @@
 .ipynb_checkpoints/econ570-checkpoint.ipynb
 county_shapefile_data/tl_2020_us_county.shp
 zip_shapefile_data/tl_2020_us_zcta520.shp
+.streamlit/secrets.toml
