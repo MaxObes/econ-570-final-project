@@ -24,13 +24,15 @@ def load_data():
     with zipfile.ZipFile("P00000001-ALL.zip", "r") as zip_ref:
         csv_data = zip_ref.read("P00000001-ALL.csv")
     df = pa.csv.read_csv(pa.BufferReader(csv_data)).to_pandas()
-    state_codes = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
+    state_codes = [
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
+        "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT",
+        "VA", "WA", "WV", "WI", "WY"
+        ]
     df = df[df["contbr_st"].isin(state_codes)]
     df["contb_receipt_dt"] = pd.to_datetime(df["contb_receipt_dt"], format="%d-%b-%y")
+    df = df[df["contb_receipt_amt"] > 0]  # remove negative donations (outflows)
     return df
 
 with st.spinner("Loading data..."):
@@ -58,10 +60,12 @@ def load_zip_to_county_crosswalk():
     df = pd.DataFrame(response.json()["data"]["results"])
     df["zip"] = df["zip"].astype(str)
     df["geoid"] = df["geoid"].astype(str)
+    df = df.sort_values("tot_ratio", ascending=False)
+    df = df.drop_duplicates("zip")  # Keep only top county per ZIP
     return df
 
 # --- Tabs ---
-tab1, tab2, tab3 = st.tabs(["Campaign Donations by State", "Campaign Donations Over Time", "Campaign Donations by County Choropleth"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Campaign Donations by State", "Campaign Donations Over Time", "Campaign Donations by County Choropleth", "Source Code", "Project Report"])
 
 with tab1:
     col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=False)
@@ -101,6 +105,19 @@ with tab1:
                 height=700
             )
             st.plotly_chart(fig, use_container_width=True)
+    
+    with col3:
+        with st.container():
+            st.markdown("""
+                        **Methodology:**
+
+                        This chart shows total monthly itemized contributions, grouped by candidate.
+                        The data is sourced from the Federal Election Commission (FEC) 2024 campaign donation filings.
+
+                        - Only positive (incoming) contributions are shown.
+                        - Candidate names are taken directly from the filing metadata.
+                        - Donations are grouped by the `contb_receipt_dt` field (contribution receipt date).
+                        """)
 
 with tab2:
     col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=True)
@@ -151,52 +168,123 @@ with tab2:
         plt.tight_layout()
         st.pyplot(fig)
     
-    col3.border = False
+    with col3:
+        with st.container():
+            st.markdown("""
+                        **Methodology:**
+
+                        Contributions are summed by candidate within each state using cleaned FEC donation data.
+
+                        - Only positive (incoming) donations are included.
+                        - The data is filtered to the 50 U.S. states (DC and territories excluded).
+                        - Hovering over each bar shows exact donation totals per candidate per state.
+                        - Only Kamala Harris and Donald Trump are shown to focus on the leading candidates.
+                        - Additional candidates may be selected, but the chart with take a few seconds to load.
+                        """)
 
 with st.spinner("Loading data..."):
     cf_df = load_data()
+    cf_df["contbr_zip"] = cf_df["contbr_zip"].astype(str).str[:5].str.zfill(5)
     crosswalk_df = load_zip_to_county_crosswalk()
+    crosswalk_df["zip"] = crosswalk_df["zip"].astype(str).str[:5].str.zfill(5)
 
     with tab3:
-        st.subheader("County-Level Donations (Log Scale)")
+        st.subheader("County-Level Campaign Donations")
+
+        mode = st.radio("View Mode", ["Total", "Kamala vs Trump"], horizontal=True, index=1)
 
         merged_df = cf_df.copy()
         merged_df["contbr_zip"] = merged_df["contbr_zip"].astype(str)
         merged_df = merged_df.merge(crosswalk_df[["zip", "geoid"]], left_on="contbr_zip", right_on="zip", how="left")
         merged_df = merged_df.rename(columns={"geoid": "GEOID"})
-        county_donations = merged_df.groupby("GEOID")["contb_receipt_amt"].sum().reset_index()
 
         counties = gpd.read_file("county_shapefile_data/counties_simplified.geojson")
         counties = counties[["GEOID", "NAMELSAD", "geometry"]].copy()
         counties["GEOID"] = counties["GEOID"].astype(str)
 
-        choropleth_df = counties.merge(county_donations, on="GEOID", how="left").fillna(0)
-        choropleth_df["log_donations"] = np.where(
-            choropleth_df["contb_receipt_amt"] > 0,
-            np.log10(choropleth_df["contb_receipt_amt"] + 1),
-            0
-        )
+        if mode == "Total":
+            county_donations = merged_df.groupby("GEOID")["contb_receipt_amt"].sum().reset_index()
+            choropleth_df = counties.merge(county_donations, on="GEOID", how="left").fillna(0)
+            choropleth_df["log_donations"] = np.where(
+                choropleth_df["contb_receipt_amt"] > 0,
+                np.log10(choropleth_df["contb_receipt_amt"] + 1),
+                0
+            )
+            color_col = "log_donations"
+            color_scale = "Viridis"
+            color_title = "Donations ($)"
+        else:
+            pivot = merged_df[merged_df["cand_nm"].isin(["Trump, Donald J.", "Harris, Kamala"])]
+            pivot = pivot.groupby(["GEOID", "cand_nm"])["contb_receipt_amt"].sum().unstack(fill_value=0).reset_index()
+            pivot["kamala_ratio"] = pivot["Harris, Kamala"] / (pivot["Harris, Kamala"] + pivot["Trump, Donald J."])
+            pivot["kamala_ratio"] = pivot["kamala_ratio"].fillna(0.5)  # Treat 0/0 as neutral purple(pivot["diff"] + max_abs) / (2 * max_abs)  # Normalize to [0,1] for red-purple-blue scale
+            choropleth_df = counties.merge(pivot, on="GEOID", how="left")
+            color_col = "kamala_ratio"
+            color_scale = [(0.0, "red"), (0.5, "purple"), (1.0, "blue")]  # red = Trump > Kamala, blue = Kamala > Trump
+            color_title = "Kamala Share of Donations" # Blue is kamala, red is trump.
 
         fig = px.choropleth_map(
             choropleth_df,
             geojson=json.loads(choropleth_df.to_json()),
             locations="GEOID",
             featureidkey="properties.GEOID",
-            color="log_donations",
-            hover_data=["NAMELSAD", "contb_receipt_amt"],
-            color_continuous_scale="Viridis",
-            range_color=(1, choropleth_df["log_donations"].max()),
+            color=color_col,
+            hover_data=["NAMELSAD", "contb_receipt_amt"] if mode == "Total" else ["NAMELSAD", "Harris, Kamala", "Trump, Donald J."],
+            color_continuous_scale=color_scale,
             center={"lat": 37.8, "lon": -96},
             zoom=3,
-            height=800
+            height=600
         )
 
         fig.update_layout(
             margin={"r": 0, "t": 0, "l": 0, "b": 0},
-            coloraxis_colorbar_title="Donations ($)",
-            coloraxis_colorbar_tickformat=".0f"
+            coloraxis_colorbar_title=color_title,
+            coloraxis_colorbar_tickformat=".2f"
         )
-
-        fig.update_traces(marker_line_width=1.0, marker_line_color="black")
+        
+        if mode == "Total":
+            fig.update_traces(marker_line_width=1.0, marker_line_color="black")
+        else:
+            fig.update_traces(marker_line_width=0.35, marker_line_color="gray")
 
         st.plotly_chart(fig, use_container_width=True)
+
+        with st.container():
+            st.write("")
+            st.write("")
+            st.markdown("---")
+            st.markdown("""
+                        **Methodology:**
+                        
+                        ZIP codes from FEC donation records were mapped to counties using the HUD USPS ZIP-County Crosswalk. 
+                        For ZIPs linked to multiple counties, we kept the county with the highest USPS residential delivery ratio.
+                        
+                        - **Total view** uses log-transformed donation sums per county.
+                        - **Kamala vs Trump view** shows the proportion of donations going to each candidate. 
+                        - Blue = Kamala-heavy counties
+                        - Red = Trump-heavy counties
+                        - Purple = roughly even
+                        - White = zero donations
+                        
+                        Negative contributions (refunds/outflows) were removed. All values reflect **total itemized contributions**.
+
+                        For more information on using the HUD USPS ZIP-County Crosswalk API, view the readme on GitHub (link in source code).
+                        """)
+    
+with tab4:
+    with open("zip_choropleth.py", "r") as f:
+        source = f.read()
+    st.subheader("Project Source Code")
+    st.code(source, language="python")
+
+with tab5:
+    st.subheader("Project Report Group 25")
+    st.write("")
+    st.markdown("---")
+    st.markdown("""
+                **Report Here:**
+                
+                Body\
+  
+                Figures\
+                """)
