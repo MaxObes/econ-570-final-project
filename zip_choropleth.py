@@ -198,6 +198,7 @@ with st.spinner("Loading data..."):
         merged_df = merged_df.merge(crosswalk_df[["zip", "geoid"]], left_on="contbr_zip", right_on="zip", how="left")
         merged_df = merged_df.rename(columns={"geoid": "GEOID"})
 
+        
         counties = gpd.read_file("county_shapefile_data/counties_simplified.geojson")
         counties = counties[["GEOID", "NAMELSAD", "geometry"]].copy()
         counties["GEOID"] = counties["GEOID"].astype(str)
