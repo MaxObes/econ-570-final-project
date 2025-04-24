@@ -12,7 +12,8 @@ import pyarrow as pa
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.ticker as ticker
-import matplotlib as mpl
+import json
+import numpy as np
 import plotly.express as px
 
 # --- Cached Data Loading ---
@@ -45,8 +46,20 @@ with st.spinner("Processing data..."):
 
 st.title("Campaign Finance Trends (2024 Presidential Election)")
 
+# --- Cached County Crosswalk Data ---
+@st.cache_data(show_spinner=False)
+def load_zip_to_county_crosswalk():
+    API_KEY = "YOUR_API_KEY"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    url = "https://www.huduser.gov/hudapi/public/usps?type=2&query=All"
+    response = requests.get(url, headers=headers)
+    df = pd.DataFrame(response.json()["data"]["results"])
+    df["zip"] = df["zip"].astype(str)
+    df["geoid"] = df["geoid"].astype(str)
+    return df
+
 # --- Tabs ---
-tab1, tab2, tab3 = st.tabs(["Campaign Donations by State", "Campaign Donations Over Time", "Campaign Donations by Zip Code"])
+tab1, tab2, tab3 = st.tabs(["Campaign Donations by State", "Campaign Donations Over Time", "Campaign Donations by County Choropleth"])
 
 with tab1:
     col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=False)
@@ -87,99 +100,101 @@ with tab1:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-    with tab2:
-        col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=True)
+with tab2:
+    col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=True)
 
-        with col1:
-            with st.container(height=700):
-                cand_totals = monthly_grouped.groupby("cand_nm")["contb_receipt_amt"].sum().sort_values(ascending=False)
-                all_candidates_sorted = cand_totals.index.tolist()
+    with col1:
+        with st.container(height=700):
+            cand_totals = monthly_grouped.groupby("cand_nm")["contb_receipt_amt"].sum().sort_values(ascending=False)
+            all_candidates_sorted = cand_totals.index.tolist()
 
-                st.markdown("**Select candidates to display:**")
-                select_all = st.button("Select All")
-                deselect_all = st.button("Deselect All")
+            st.markdown("**Select candidates to display:**")
+            select_all = st.button("Select All")
+            deselect_all = st.button("Deselect All")
 
-                # Session state to hold selected candidates
-                if "selected_candidates" not in st.session_state:
-                    st.session_state.selected_candidates = [cand for cand in all_candidates_sorted if cand in ["Trump, Donald J.", "Harris, Kamala"]]
+            # Session state to hold selected candidates
+            if "selected_candidates" not in st.session_state:
+                st.session_state.selected_candidates = [cand for cand in all_candidates_sorted if cand in ["Trump, Donald J.", "Harris, Kamala"]]
 
-                if select_all:
-                    st.session_state.selected_candidates = all_candidates_sorted
-                if deselect_all:
-                    st.session_state.selected_candidates = []
+            if select_all:
+                st.session_state.selected_candidates = all_candidates_sorted
+            if deselect_all:
+                st.session_state.selected_candidates = []
 
-                selected_candidates = []
-                for cand in all_candidates_sorted:
-                    if st.checkbox(label=cand, value=(cand in st.session_state.selected_candidates), key=f"checkbox_{cand}"):
-                        selected_candidates.append(cand)
-                st.session_state.selected_candidates = selected_candidates
+            selected_candidates = []
+            for cand in all_candidates_sorted:
+                if st.checkbox(label=cand, value=(cand in st.session_state.selected_candidates), key=f"checkbox_{cand}"):
+                    selected_candidates.append(cand)
+            st.session_state.selected_candidates = selected_candidates
 
-        with col2:
-            st.title("Monthly Donation Trends (2024 Election)")
-            st.subheader("Donation Totals by Month and Candidate")
-
-            filtered_data = monthly_grouped[monthly_grouped["cand_nm"].isin(selected_candidates)]
-
-            # Sort candidates in legend by total contributions
-            legend_order = filtered_data.groupby("cand_nm")["contb_receipt_amt"].sum().sort_values(ascending=False).index.tolist()
-            filtered_data["cand_nm"] = pd.Categorical(filtered_data["cand_nm"], categories=legend_order, ordered=True)
-
-            fig, ax = plt.subplots(figsize=(12, 5))
-            sns.lineplot(data=filtered_data, x="month", y="contb_receipt_amt", hue="cand_nm", ax=ax)
-            ax.set_title("Monthly Donation Totals by Candidate", fontsize=12)
-            ax.set_xlabel("Month", fontsize=10)
-            ax.set_ylabel("Total Contributions ($ Millions)", fontsize=10)
-            ax.legend(title="Candidate", loc='upper left', bbox_to_anchor=(1.05, 1))
-            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{int(x / 1e6)}'))
-            plt.xticks(rotation=45, fontsize=8)
-            plt.yticks(fontsize=8)
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        col3.border = False
-
-with tab3:
-    col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=False)
     with col2:
-        st.subheader("ZIP-Level Donation Choropleth")
+        st.title("Monthly Donation Trends (2024 Election)")
+        st.subheader("Donation Totals by Month and Candidate")
 
-        # Load shapefile and donations by ZIP
-        @st.cache_data(show_spinner=False)
-        def load_zcta():
-            zcta_gdf = gpd.read_file("tl_2020_us_zcta520.shp")
-            zcta_gdf = zcta_gdf[["ZCTA5CE20", "geometry"]].rename(columns={"ZCTA5CE20": "zip"})
-            return zcta_gdf
+        filtered_data = monthly_grouped[monthly_grouped["cand_nm"].isin(selected_candidates)]
 
-        @st.cache_data(show_spinner=False)
-        def get_donations_by_zip(df):
-            don_by_zip = df.groupby("contbr_zip")["contb_receipt_amt"].sum().reset_index()
-            don_by_zip = don_by_zip.rename(columns={"contbr_zip": "zip"})
-            return don_by_zip
+        # Sort candidates in legend by total contributions
+        legend_order = filtered_data.groupby("cand_nm")["contb_receipt_amt"].sum().sort_values(ascending=False).index.tolist()
+        filtered_data["cand_nm"] = pd.Categorical(filtered_data["cand_nm"], categories=legend_order, ordered=True)
 
-        with st.spinner("Loading ZIP-level geometry and donations..."):
-            zcta_gdf = load_zcta()
-            don_by_zip = get_donations_by_zip(cf_df)
+        fig, ax = plt.subplots(figsize=(12, 5))
+        sns.lineplot(data=filtered_data, x="month", y="contb_receipt_amt", hue="cand_nm", ax=ax)
+        ax.set_title("Monthly Donation Totals by Candidate", fontsize=12)
+        ax.set_xlabel("Month", fontsize=10)
+        ax.set_ylabel("Total Contributions ($ Millions)", fontsize=10)
+        ax.legend(title="Candidate", loc='upper left', bbox_to_anchor=(1.05, 1))
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{int(x / 1e6)}'))
+        plt.xticks(rotation=45, fontsize=8)
+        plt.yticks(fontsize=8)
+        plt.tight_layout()
+        st.pyplot(fig)
+    
+    col3.border = False
 
-        choropleth_df = zcta_gdf.merge(don_by_zip, on="zip", how="left").fillna(0)
-        choropleth_df["zip"] = choropleth_df["zip"].astype(str)
+with st.spinner("Loading data..."):
+    cf_df = load_data()
+    crosswalk_df = load_zip_to_county_crosswalk()
 
-        choropleth_df["id"] = choropleth_df.index.astype(str)
-import json
-geojson_data = json.loads(choropleth_df.to_json())
+    with tab3:
+        st.subheader("County-Level Donations (Log Scale)")
 
-fig = px.choropleth_mapbox(
-    choropleth_df,
-    geojson=geojson_data,
-    locations="id",
-            color="contb_receipt_amt",
-            hover_name="zip",
-            mapbox_style="carto-positron",
+        merged_df = cf_df.copy()
+        merged_df["contbr_zip"] = merged_df["contbr_zip"].astype(str)
+        merged_df = merged_df.merge(crosswalk_df[["zip", "geoid"]], left_on="contbr_zip", right_on="zip", how="left")
+        merged_df = merged_df.rename(columns={"geoid": "GEOID"})
+        county_donations = merged_df.groupby("GEOID")["contb_receipt_amt"].sum().reset_index()
+
+        counties = gpd.read_file("county_shapefile_data/counties_simplified.geojson")
+        counties = counties[["GEOID", "NAMELSAD", "geometry"]].copy()
+        counties["GEOID"] = counties["GEOID"].astype(str)
+
+        choropleth_df = counties.merge(county_donations, on="GEOID", how="left").fillna(0)
+        choropleth_df["log_donations"] = np.where(
+            choropleth_df["contb_receipt_amt"] > 0,
+            np.log10(choropleth_df["contb_receipt_amt"] + 1),
+            0
+        )
+
+        fig = px.choropleth_map(
+            choropleth_df,
+            geojson=json.loads(choropleth_df.to_json()),
+            locations="GEOID",
+            featureidkey="properties.GEOID",
+            color="log_donations",
+            hover_data=["NAMELSAD", "contb_receipt_amt"],
             color_continuous_scale="Viridis",
-            zoom=3,
+            range_color=(1, choropleth_df["log_donations"].max()),
             center={"lat": 37.8, "lon": -96},
-            opacity=0.6,
+            zoom=3,
             height=600
         )
 
-fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            coloraxis_colorbar_title="Donations ($)",
+            coloraxis_colorbar_tickformat=".0f"
+        )
+
+        fig.update_traces(marker_line_width=1.0, marker_line_color="black")
+
+        st.plotly_chart(fig, use_container_width=True)
