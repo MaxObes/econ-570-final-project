@@ -9,11 +9,13 @@ import pandas as pd
 import geopandas as gpd
 import zipfile
 import pyarrow as pa
+import pyarrow.csv
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.ticker as ticker
 import json
 import numpy as np
+import requests
 import plotly.express as px
 
 # --- Cached Data Loading ---
@@ -49,7 +51,7 @@ st.title("Campaign Finance Trends (2024 Presidential Election)")
 # --- Cached County Crosswalk Data ---
 @st.cache_data(show_spinner=False)
 def load_zip_to_county_crosswalk():
-    API_KEY = "YOUR_API_KEY"
+    API_KEY = st.secrets["hud_api_key"]
     headers = {"Authorization": f"Bearer {API_KEY}"}
     url = "https://www.huduser.gov/hudapi/public/usps?type=2&query=All"
     response = requests.get(url, headers=headers)
@@ -186,7 +188,7 @@ with st.spinner("Loading data..."):
             range_color=(1, choropleth_df["log_donations"].max()),
             center={"lat": 37.8, "lon": -96},
             zoom=3,
-            height=600
+            height=800
         )
 
         fig.update_layout(
