@@ -273,7 +273,7 @@ with st.spinner("Loading data..."):
                         """)
     
 with tab4:
-    with open("zip_choropleth.py", "r") as f:
+    with open("choropleth_dashboard.py", "r") as f:
         source = f.read()
     st.subheader("Project Source Code")
     st.code(source, language="python")
