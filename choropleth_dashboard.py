@@ -335,7 +335,7 @@ with st.spinner("Loading data..."):
             hover_data=["NAMELSAD", "contb_receipt_amt"] if mode == "Total" else ["NAMELSAD", "Harris, Kamala", "Trump, Donald J."],
             color_continuous_scale=color_scale,
             center={"lat": 37.8, "lon": -96},
-            zoom=3,
+            scope="usa",
             height=600
         )
 
