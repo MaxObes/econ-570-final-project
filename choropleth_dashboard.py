@@ -83,12 +83,11 @@ def load_zip_to_county_crosswalk():
     return df
 
 # --- Tab Setup ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "Campaign Donations by State", 
     "Campaign Donations Over Time", 
     "Campaign Donations by County Choropleth", 
     "Source Code", 
-    "Project Report"
 ])
 
 # --- Tab 1: Bar Chart of Contributions by State and Candidate ---
@@ -425,16 +424,3 @@ with tab4:
         source = f.read()
     st.subheader("Project Source Code")
     st.code(source, language="python")
-
-# --- Tab 5: Project Report ---
-with tab5:
-    st.subheader("Project Report Group 25")
-    st.write("")
-    st.markdown("---")
-    st.markdown("""
-                **Report Here:**
-                
-                Body\
-  
-                Figures\
-                """)
