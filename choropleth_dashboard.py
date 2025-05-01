@@ -326,7 +326,7 @@ with st.spinner("Loading data..."):
             color_title = "Kamala Share of Donations" # Blue is kamala, red is trump.
 
         # Create choropleth figure
-        fig = px.choropleth_map(
+        fig = px.choropleth(
             choropleth_df,
             geojson=json.loads(choropleth_df.to_json()),
             locations="GEOID",
