@@ -83,11 +83,12 @@ def load_zip_to_county_crosswalk():
     return df
 
 # --- Tab Setup ---
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Campaign Donations by State", 
     "Campaign Donations Over Time", 
     "Campaign Donations by County Choropleth", 
-    "Source Code", 
+    "Vote Share by State", 
+    "Source Code"
 ])
 
 # --- Tab 1: Bar Chart of Contributions by State and Candidate ---
@@ -417,9 +418,71 @@ with st.spinner("Loading data..."):
 
                         For more information on using the HUD USPS ZIP-County Crosswalk API, view the readme on GitHub (link in source code).
                         """)
-
-# --- Tab 4: Source Code Viewer ---
+            
+# --- Tab 4: Voter Data ---
 with tab4:
+    st.title("Vote Share by Candidate and State (2024 Election)")
+    col1, col2, col3 = st.columns([0.15, 0.7, 0.15], border=True)
+
+    # Center column with Barplot
+    with col2:
+        # Read election results
+        elec_df = pd.read_excel("2024presgeresults.xlsx")
+        elec_df.fillna(0, inplace=True)
+
+        # Drop minor candidates to match donation focus
+        irrelevant = ['AYYADURAI', 'BOWMAN', 'DE LA CRUZ', 'DUNCAN', 'EBKE', 'EVERYLOVE', 'FRUIT', 'GARRITY', 'HUBER', 
+                    'KENNEDY', 'KISHORE', 'OLIVER', 'PRESTON', 'SKOUSEN', 'SONSKI', 'STEIN', 'STODDEN', 'SUPREME', 
+                    'TERRY', 'WELLS', 'WEST', 'WOOD', 'NONE OF THESE CANDIDATES', 'WRITE-INS (SCATTERED)']
+        elec_df.drop(columns=irrelevant, inplace=True)
+
+        # reformat data for plotting and calculate share of votes
+        elec_df = elec_df[["STATE", "HARRIS", "TRUMP"]]
+        elec_df = elec_df.drop(index=elec_df.index[49:73])
+        elec_df = elec_df.dropna()
+        harris_share = elec_df["HARRIS"] / (elec_df["HARRIS"] + elec_df["TRUMP"])
+        trump_share = elec_df["TRUMP"] / (elec_df["HARRIS"] + elec_df["TRUMP"])
+        elec_df["HARRIS"] = harris_share
+        elec_df["TRUMP"] = trump_share
+
+        elec_df_h = elec_df[["STATE", "HARRIS"]]
+        elec_df_h["CAND"] = "HARRIS"
+        elec_df_h.columns = ["STATE", "VOTES", "CAND"]
+
+        elec_df_t = elec_df[["STATE", "TRUMP"]]
+        elec_df_t["CAND"] = "TRUMP"
+        elec_df_t.columns = ["STATE", "VOTES", "CAND"]
+
+        elec_df = pd.concat([elec_df_h, elec_df_t], ignore_index=True)
+
+        # plot data
+        fig, ax = plt.subplots(figsize=(12, 5))
+        sns.barplot(data=elec_df, x="STATE", y="VOTES", hue="CAND", palette="Set2")
+        sns.despine()
+        ax.set_title("Vote Share by Candidate and State")
+        ax.set_xlabel("State")
+        ax.set_ylabel("Vote Share")
+        ax.legend(title="Candidate")
+        plt.xticks(rotation=90)
+        plt.tight_layout()
+        plt.grid()
+        st.pyplot(fig)
+    
+    # Right Column holds explanation of methodology
+    with col3:
+        with st.container():
+            st.markdown("""
+                        **Methodology:**
+
+                        Votes are summed by candidate within each state using cleaned FEC election data.
+
+                        - Votes are displayed as share of votes to normalize results.
+                        - The data is filtered to the 50 U.S. states (DC and territories excluded).
+                        - Only Kamala Harris and Donald Trump are shown to focus on the leading candidates.
+                        """)
+
+# --- Tab 5: Source Code Viewer ---
+with tab5:
     with open("choropleth_dashboard.py", "r") as f:
         source = f.read()
     st.subheader("Project Source Code")
